@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Ptáček</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 50%, #B0E0E6 100%);
+            cursor: pointer;
+        }
+
+        #startScreen, #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.5);
+            animation: float 2s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .button {
+            padding: 15px 40px;
+            font-size: 1.2em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 10px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .instructions {
+            text-align: center;
+            margin: 20px;
+            font-size: 1.1em;
+            line-height: 1.5;
+        }
+
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2.5em;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 5;
+            font-weight: bold;
+        }
+
+        #bestScore {
+            position: absolute;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.2em;
+            color: #FFD700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 5;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #mobileControls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            #mobileControls {
+                display: block;
+            }
+            
+            .tap-hint {
+                position: absolute;
+                bottom: 80px;
+                left: 50%;
+                transform: translateX(-50%);
+                color: white;
+                font-size: 1.2em;
+                animation: pulse 1.5s ease-in-out infinite;
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="score" class="hidden">0</div>
+        <div id="bestScore" class="hidden">Nejlepší: 0</div>
+        
+        <div id="startScreen">
+            <h1>🐦 Flappy Ptáček</h1>
+            <div class="instructions">
+                <p>Klikni nebo stiskni mezerník pro let</p>
+                <p>Vyhýbej se trubkám!</p>
+                <p>Každá trubka = 1 bod</p>
+            </div>
+            <button class="button" onclick="startGame()">Hrát</button>
+        </div>
+        
+        <div id="gameOverScreen" class="hidden">
+            <h1>Konec hry!</h1>
+            <div style="font-size: 2em; margin: 20px;">
+                Skóre: <span id="finalScore">0</span>
+            </div>
+            <div style="font-size: 1.5em; margin: 10px; color: #FFD700;">
+                Nejlepší: <span id="finalBest">0</span>
+            </div>
+            <button class="button" onclick="restartGame()">Hrát znovu</button>
+        </div>
+        
+        <div class="tap-hint hidden" id="tapHint">Klepej pro let!</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Nastavení velikosti canvasu
+        canvas.width = 400;
+        canvas.height = 600;
+        
+        // Hra proměnné
+        let gameRunning = false;
+        let score = 0;
+        let bestScore = localStorage.getItem('flappyBestScore') || 0;
+        let frame = 0;
+        
+        // Ptáček
+        const bird = {
+            x: 100,
+            y: canvas.height / 2,
+            radius: 20,
+            velocity: 0,
+            gravity: 0.5,
+            jump: -8,
+            rotation: 0,
+            wingAngle: 0
+        };
+        
+        // Trubky
+        const pipes = [];
+        const pipeWidth = 60;
+        const pipeGap = 150;
+        const pipeSpeed = 2;
+        
+        // Oblačky
+        const clouds = [];
+        for (let i = 0; i < 5; i++) {
+            clouds.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * 200,
+                width: 60 + Math.random() * 40,
+                speed: 0.5 + Math.random() * 0.5
+            });
+        }
+        
+        // Funkce pro kreslení ptáčka
+        function drawBird() {
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            
+            // Rotace podle rychlosti
+            bird.rotation = Math.min(Math.max(bird.velocity * 3, -30), 90) * Math.PI / 180;
+            ctx.rotate(bird.rotation);
+            
+            // Tělo ptáčka
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, bird.radius, bird.radius * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Oko
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(8, -5, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(10, -5, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Zobák
+            ctx.fillStyle = '#FF6347';
+            ctx.beginPath();
+            ctx.moveTo(15, 0);
+            ctx.lineTo(25, 3);
+            ctx.lineTo(15, 6);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Křídlo
+            bird.wingAngle = Math.sin(frame * 0.2) * 0.3;
+            ctx.save();
+            ctx.rotate(bird.wingAngle);
+            ctx.fillStyle = '#FFA500';
+            ctx.beginPath();
+            ctx.ellipse(-10, 0, 15, 8, -0.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            
+            ctx.restore();
+        }
+        
+        // Funkce pro kreslení trubek
+        function drawPipe(pipe) {
+            // Spodní trubka
+            const gradient1 = ctx.createLinearGradient(pipe.x, 0, pipe.x + pipeWidth, 0);
+            gradient1.addColorStop(0, '#2ECC40');
+            gradient1.addColorStop(0.5, '#27AE60');
+            gradient1.addColorStop(1, '#229954');
+            
+            ctx.fillStyle = gradient1;
+            ctx.fillRect(pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+            
+            // Vrchní trubka
+            ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+            
+            // Okraje trubek
+            ctx.fillStyle = '#1E8449';
+            ctx.fillRect(pipe.x - 5, pipe.top - 30, pipeWidth + 10, 30);
+            ctx.fillRect(pipe.x - 5, pipe.bottom, pipeWidth + 10, 30);
+            
+            // Zvýraznění
+            ctx.strokeStyle = '#145A32';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(pipe.x, 0, pipeWidth, pipe.top);
+            ctx.strokeRect(pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+        }
+        
+        // Funkce pro kreslení oblaček
+        function drawClouds() {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.width * 0.5, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.width * 0.3, cloud.y, cloud.width * 0.4, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.width * 0.3, cloud.y, cloud.width * 0.4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // Funkce pro aktualizaci oblaček
+        function updateClouds() {
+            clouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x + cloud.width < 0) {
+                    cloud.x = canvas.width + cloud.width;
+                    cloud.y = Math.random() * 200;
+                }
+            });
+        }
+        
+        // Funkce pro kontrolu kolize
+        function checkCollision() {
+            // Kontrola země a stropu
+            if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) {
+                return true;
+            }
+            
+            // Kontrola trubek
+            for (let pipe of pipes) {
+                if (bird.x + bird.radius > pipe.x && 
+                    bird.x - bird.radius < pipe.x + pipeWidth) {
+                    if (bird.y - bird.radius < pipe.top || 
+                        bird.y + bird.radius > pipe.bottom) {
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
+        }
+        
+        // Hlavní herní smyčka
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            // Vyčištění canvasu
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Vykreslení pozadí
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(0.5, '#98D8E8');
+            gradient.addColorStop(1, '#B0E0E6');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Aktualizace a kreslení oblaček
+            updateClouds();
+            drawClouds();
+            
+            // Aktualizace ptáčka
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+            
+            // Vytvoření nových trubek
+            if (frame % 100 === 0) {
+                const topHeight = Math.random() * (canvas.height - pipeGap - 100) + 50;
+                pipes.push({
+                    x: canvas.width,
+                    top: topHeight,
+                    bottom: topHeight + pipeGap,
+                    passed: false
+                });
+            }
+            
+            // Aktualizace trubek
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].x -= pipeSpeed;
+                
+                // Kontrola bodů
+                if (!pipes[i].passed && pipes[i].x + pipeWidth < bird.x) {
+                    pipes[i].passed = true;
+                    score++;
+                    updateScore();
+                }
+                
+                // Odstranění trubek mimo obrazovku
+                if (pipes[i].x + pipeWidth < 0) {
+                    pipes.splice(i, 1);
+                }
+            }
+            
+            // Kreslení trubek
+            pipes.forEach(drawPipe);
+            
+            // Kreslení ptáčka
+            drawBird();
+            
+            // Kontrola kolize
+            if (checkCollision()) {
+                gameOver();
+                return;
+            }
+            
+            frame++;
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Funkce pro skok
+        function jump() {
+            if (!gameRunning) return;
+            bird.velocity = bird.jump;
+        }
+        
+        // Funkce pro start hry
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('score').classList.remove('hidden');
+            document.getElementById('bestScore').classList.remove('hidden');
+            document.getElementById('tapHint').classList.remove('hidden');
+            
+            resetGame();
+            gameRunning = true;
+            gameLoop();
+        }
+        
+        // Funkce pro reset hry
+        function resetGame() {
+            bird.y = canvas.height / 2;
+            bird.velocity = 0;
+            bird.rotation = 0;
+            pipes.length = 0;
+            score = 0;
+            frame = 0;
+            updateScore();
+        }
+        
+        // Funkce pro konec hry
+        function gameOver() {
+            gameRunning = false;
+            
+            if (score > bestScore) {
+                bestScore = score;
+                localStorage.setItem('flappyBestScore', bestScore);
+            }
+            
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('finalBest').textContent = bestScore;
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+            document.getElementById('tapHint').classList.add('hidden');
+        }
+        
+        // Funkce pro restart hry
+        function restartGame() {
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            resetGame();
+            gameRunning = true;
+            gameLoop();
+        }
+        
+        // Funkce pro aktualizaci skóre
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('bestScore').textContent = 'Nejlepší: ' + bestScore;
+        }
+        
+        // Ovládání
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                jump();
+            }
+        });
+        
+        canvas.addEventListener('click', jump);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            jump();
+        });
+        
+        // Inicializace nejlepšího skóre
+        document.getElementById('bestScore').textContent = 'Nejlepší: ' + bestScore;
+    </script>
+</body>
+</html>
